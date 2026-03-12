@@ -1,3 +1,5 @@
 jnl_master.db
-__pycache__/
-.env
+*.py
+!app.py
+ROBO_JNL.bat
+enviar.bat
