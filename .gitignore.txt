@@ -1,0 +1,3 @@
+jnl_master.db
+__pycache__/
+.env
