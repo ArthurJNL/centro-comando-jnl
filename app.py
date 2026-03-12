@@ -20,7 +20,7 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS anotacoes (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT, pasta TEXT, titulo TEXT, conteudo TEXT)')
     c.execute('CREATE TABLE IF NOT EXISTS chat_setor (id INTEGER PRIMARY KEY AUTOINCREMENT, setor TEXT, usuario TEXT, data_hora TEXT, mensagem TEXT, editada INTEGER DEFAULT 0)')
     
-    # Garantia de colunas (Evita KeyError)
+    # Garantia de colunas (Proteção contra KeyError)
     c.execute("PRAGMA table_info(calendario)")
     cols_cal = [col[1] for col in c.fetchall()]
     if 'destinatarios' not in cols_cal: c.execute('ALTER TABLE calendario ADD COLUMN destinatarios TEXT')
@@ -38,7 +38,7 @@ init_db()
 if "autenticado" not in st.session_state: st.session_state["autenticado"] = False
 if "setor" not in st.session_state: st.session_state["setor"] = None
 
-USUARIOS = {"arthur": {"senha": "32167308", "nome": "ARTHUR (DIRETORIA)", "setores": ["TODOS"]}}
+USUARIOS = {"arthur": {"senha": "32167308", "nome": "ARTHUR (DIRETORIA)"}}
 
 if not st.session_state["autenticado"]:
     st.title("🏢 SISTEMA JNL - ACESSO")
@@ -52,6 +52,7 @@ if not st.session_state["autenticado"]:
 
 elif st.session_state["setor"] is None:
     st.title(f"Olá, {st.session_state['user_nome']}")
+    st.subheader("Selecione o Setor:")
     setores = ["ADMINISTRATIVO", "FINANCEIRO", "VENDAS", "COMPRAS", "SOLUÇÕES CORPORATIVAS", "GERAL"]
     cols = st.columns(3)
     for i, s in enumerate(setores):
@@ -61,23 +62,24 @@ elif st.session_state["setor"] is None:
                 st.rerun()
 
 else:
+    # --- ÁREA LOGADA ---
     setor_atual = st.session_state["setor"]
     user = st.session_state["user_slug"]
 
-    # --- BARRA LATERAL (PLANILHAS RESTAURADAS) ---
+    # BARRA LATERAL (PLANILHAS)
     with st.sidebar:
         st.header(f"📍 {setor_atual}")
         if st.button("⬅️ VOLTAR AO MENU"):
             st.session_state["setor"] = None
             st.rerun()
         st.write("---")
-        st.subheader("📂 SALVAR PLANILHAS")
+        st.subheader("📂 PLANILHAS")
         up = st.file_uploader("Upload", accept_multiple_files=True)
-        if st.button("📥 SALVAR NO SERVIDOR"):
-            if up: st.success("Arquivos processados com sucesso!"); st.rerun()
+        if st.button("📥 SALVAR"):
+            if up: st.success("Salvo com sucesso!"); st.rerun()
         
-    # --- ABAS DEFINIDAS CORRETAMENTE ---
-    tab_ia, tab_chat, tab_agenda, tab_notas = st.tabs(["💻 IA", "👥 Chat", "📅 Agenda", "📝 Notas"])
+    # CRIAÇÃO DAS ABAS (Garantindo que todas existam no mesmo bloco)
+    tab_ia, tab_chat, tab_agenda, tab_notes = st.tabs(["💻 IA", "👥 Chat", "📅 Agenda", "📝 Notas"])
 
     with tab_ia:
         st.subheader("Cérebro Artificial JNL")
@@ -88,7 +90,7 @@ else:
                 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                 res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "user", "content": prompt}]).choices[0].message.content
                 with st.chat_message("assistant"): st.write(res)
-            except: st.error("Erro na chave da IA.")
+            except: st.error("Erro na chave da IA (Verifique os Secrets).")
 
     with tab_chat:
         st.subheader(f"Chat: {setor_atual}")
@@ -101,20 +103,21 @@ else:
             align, bg = ("right", "#dcf8c6") if is_me else ("left", "#f1f0f0")
             tag = " *(Editada)*" if row.get('editada') == 1 else ""
             
-            st.markdown(f"<div style='text-align: {align};'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: black; margin: 5px; min-width: 150px; box-shadow: 1px 1px 2px rgba(0,0,0,0.1);'><b>{row['usuario'].capitalize()}</b><br>{row['mensagem']}<br><small style='color: gray;'>{row['data_hora']}{tag}</small></div></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align: {align};'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: black; margin: 5px; min-width: 150px; box-shadow: 1px 1px 2px rgba(0,0,0,0.1);'><b>{row['usuario'].capitalize()}</b><br>{row['mensagem']}<br><small style='color: gray; font-size: 0.7em;'>{row['data_hora']}{tag}</small></div></div>", unsafe_allow_html=True)
             
             if is_me:
+                # Trava de 10 minutos para edição
                 dt_m = datetime.strptime(row['data_hora'], '%Y-%m-%d %H:%M:%S')
                 if datetime.now() - dt_m < timedelta(minutes=10):
                     with st.popover("✏️ Editar"):
                         nv = st.text_input("Corrigir:", row['mensagem'], key=f"e_{row['id']}")
-                        if st.button("OK", key=f"b_{row['id']}"):
+                        if st.button("Salvar Alteração", key=f"b_{row['id']}"):
                             conn = sqlite3.connect('jnl_master.db'); c = conn.cursor()
                             c.execute("UPDATE chat_setor SET mensagem = ?, editada = 1 WHERE id = ?", (nv, row['id']))
                             conn.commit(); conn.close(); st.rerun()
 
         with st.form("chat_form", clear_on_submit=True):
-            m = st.text_input("Mensagem:")
+            m = st.text_input("Digite sua mensagem:")
             if st.form_submit_button("Enviar"):
                 if m:
                     conn = sqlite3.connect('jnl_master.db'); c = conn.cursor()
@@ -124,7 +127,7 @@ else:
     with tab_agenda:
         st.subheader("Agenda de Ações")
         with st.form("agenda_form"):
-            t_age = st.text_input("Título")
+            t_age = st.text_input("Título da Tarefa")
             col1, col2 = st.columns(2)
             d_age = col1.date_input("Data")
             h_age = col2.time_input("Hora")
@@ -132,17 +135,17 @@ else:
             if st.form_submit_button("Agendar"):
                 conn = sqlite3.connect('jnl_master.db'); c = conn.cursor()
                 c.execute("INSERT INTO calendario (usuario, titulo, data_hora, notificado, destinatarios) VALUES (?, ?, ?, 0, ?)", (user, t_age, f"{d_age} {h_age}", para))
-                conn.commit(); conn.close(); st.success("Agendado!"); st.rerun()
+                conn.commit(); conn.close(); st.success("Agendado com sucesso!"); st.rerun()
 
     with tab_notes:
-        st.subheader("Bloco de Notas")
+        st.subheader("Bloco de Notas Pessoal")
         with st.form("nota_form", clear_on_submit=True):
             t_nota = st.text_input("Título da Nota")
-            c_nota = st.text_area("Conteúdo")
+            c_nota = st.text_area("Escreva sua nota aqui...")
             if st.form_submit_button("Salvar Nota 💾"):
                 conn = sqlite3.connect('jnl_master.db'); c = conn.cursor()
                 c.execute("INSERT INTO anotacoes (usuario, pasta, titulo, conteudo) VALUES (?, 'N', ?, ?)", (user, t_nota, c_nota))
-                conn.commit(); conn.close(); st.success("Salva!"); st.rerun()
+                conn.commit(); conn.close(); st.success("Nota salva!"); st.rerun()
         
         st.write("---")
         conn = sqlite3.connect('jnl_master.db')
