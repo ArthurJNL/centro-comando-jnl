@@ -63,7 +63,8 @@ elif st.session_state["setor"] is None:
     cols = st.columns(3)
     for i, s in enumerate(setores_visiveis):
         with cols[i % 3]:
-            tipo = "primary" if "SENHAS" in s or "ADMIN" in s else "secondary"
+            # LÓGICA CORRIGIDA: Apenas o botão de SENHAS fica vermelho (primary)
+            tipo = "primary" if "SENHAS" in s else "secondary"
             if st.button(s, use_container_width=True, type=tipo):
                 st.session_state["setor"] = s; st.rerun()
 
@@ -100,7 +101,7 @@ else:
             if st.button("⬅️ TROCAR SETOR"): st.session_state["setor"] = None; st.rerun()
             st.write("---")
             st.subheader("⚙️ PERFIL IA")
-            nova_o = st.text_area("Nova Ordem:", placeholder="Ex: Me chame de Arthur.")
+            nova_o = st.text_area("Nova Ordem:", placeholder="Ex: Sempre me chame de Comandante.")
             if st.button("Gravar Ordem"):
                 if nova_o:
                     supabase.table("ordens_ia").insert({"usuario": user, "ordem": nova_o}).execute()
