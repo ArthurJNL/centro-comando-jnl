@@ -100,7 +100,7 @@ else:
             if st.button("⬅️ TROCAR SETOR"): st.session_state["setor"] = None; st.rerun()
             st.write("---")
             
-            # --- ARMAZÉM DE PLANILHAS (RESTAURADO) ---
+            # --- ARMAZÉM DE PLANILHAS ---
             st.subheader("📂 ARMAZÉM DE PLANILHAS")
             up = st.file_uploader("Subir Doc", accept_multiple_files=True)
             if st.button("📥 SALVAR NO SERVIDOR"):
@@ -108,11 +108,9 @@ else:
                     for f in up:
                         supabase.table("arquivos_setoriais").insert({"setor": setor_atual, "nome": f.name, "caminho": f.name}).execute()
                     st.success("Salvo!"); st.rerun()
-            
-            st.write("**Arquivos deste Setor:**")
+            st.write("**Arquivos do Setor:**")
             res_arq = supabase.table("arquivos_setoriais").select("*").eq("setor", setor_atual).execute()
-            for arq in res_arq.data:
-                st.caption(f"📄 {arq['nome']}")
+            for arq in res_arq.data: st.caption(f"📄 {arq['nome']}")
             
             st.write("---")
             st.subheader("⚙️ PERFIL IA")
@@ -128,7 +126,6 @@ else:
                     if st.button("🗑️", key=f"del_o_{o['id']}"):
                         supabase.table("ordens_ia").delete().eq("id", o['id']).execute(); st.rerun()
 
-        # --- ABAS ---
         tab_ia, tab_chat, tab_age, tab_note = st.tabs(["💬 IA JNL", "👥 CHAT", "📅 AGENDA", "📝 NOTAS"])
 
         # IA JNL
@@ -142,98 +139,75 @@ else:
                 with st.chat_message("assistant"):
                     res_o = supabase.table("ordens_ia").select("ordem").eq("usuario", user).order("id", desc=False).execute()
                     regras = "\n".join([x['ordem'] for x in res_o.data])
-                    contexto = busca_web(prompt) if any(x in prompt.lower() for x in ["hoje", "dólar", "agora"]) else ""
-                    ctx = f"Você é a IA da JNL. REGRAS: {regras}. WEB: {contexto}"
+                    ctx = f"Você é a IA da JNL. REGRAS: {regras}. WEB: {busca_web(prompt)}"
                     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
                     resp = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": ctx}] + st.session_state["mensagens_ia"]).choices[0].message.content
                     st.markdown(resp); st.session_state["mensagens_ia"].append({"role": "assistant", "content": resp})
 
-        # CHAT (COM MENU DE 3 PONTINHOS E 20 MINUTOS)
+        # CHAT (COM MENU DE OPÇÕES E PROPRIEDADE)
         with tab_chat:
             res_c = supabase.table("chat_setor").select("*").eq("setor", setor_atual).order("id", desc=False).execute()
             for m in res_c.data:
                 is_me = m['usuario'] == user
                 align, bg = ("right", "#dcf8c6") if is_me else ("left", "#f1f0f0")
                 
-                # Cabeçalho da Mensagem
-                if m['apagada'] == 1:
-                    conteudo = "<i>🚫 Mensagem apagada</i>"
-                    cor_texto = "#888"
-                else:
-                    tag_edit = " *(Editada)*" if m['editada'] == 1 else ""
-                    conteudo = f"{m['mensagem']}{tag_edit}"
-                    cor_texto = "black"
+                if m['apagada'] == 1: conteudo, cor = "<i>🚫 Mensagem apagada</i>", "#888"
+                else: conteudo, cor = f"{m['mensagem']} {'*(Editada)*' if m['editada'] == 1 else ''}", "black"
 
-                # Layout da Mensagem
-                col_msg, col_opt = st.columns([10, 1])
-                with col_msg:
-                    st.markdown(f"<div style='text-align: {align};'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor_texto}; margin: 5px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
+                # Lógica do Menu "3 Pontinhos"
+                col_bubble, col_menu = st.columns([12, 1])
+                with col_bubble:
+                    st.markdown(f"<div style='text-align: {align};'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin: 5px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
                 
-                # Menu de Opções (Apenas se for MINHA mensagem e estiver dentro dos 20 min)
-                with col_opt:
+                with col_menu:
+                    # Só aparece o menu se for o dono da mensagem e não estiver apagada
                     if is_me and m['apagada'] == 0:
                         try:
-                            # Converte o tempo do banco para comparação
                             ts_msg = datetime.fromisoformat(m['timestamp_real'].replace('Z', '+00:00'))
                             agora = datetime.now(ts_msg.tzinfo)
-                            tempo_passado = (agora - ts_msg).total_seconds() / 60
-                        except:
-                            tempo_passado = 999 # Trava em caso de erro de data
-
-                        if tempo_passado <= 20:
-                            with st.popover("⋮"): # Simula os 3 pontinhos
-                                nv_txt = st.text_area("Editar mensagem:", value=m['mensagem'], key=f"te_{m['id']}")
-                                if st.button("Salvar Alteração", key=f"be_{m['id']}"):
-                                    supabase.table("chat_setor").update({"mensagem": nv_txt, "editada": 1}).eq("id", m['id']).execute()
-                                    st.rerun()
-                                if st.button("🗑️ Apagar Mensagem", key=f"ba_{m['id']}"):
-                                    supabase.table("chat_setor").update({"apagada": 1}).eq("id", m['id']).execute()
-                                    st.rerun()
+                            # Se tempo for menor que 20 minutos, mostra o menu
+                            if (agora - ts_msg).total_seconds() / 60 <= 20:
+                                with st.popover("⋮"):
+                                    nv_txt = st.text_area("Editar:", value=m['mensagem'], key=f"te_{m['id']}")
+                                    if st.button("Salvar", key=f"be_{m['id']}"):
+                                        supabase.table("chat_setor").update({"mensagem": nv_txt, "editada": 1}).eq("id", m['id']).execute(); st.rerun()
+                                    if st.button("🗑️ Apagar", key=f"ba_{m['id']}"):
+                                        supabase.table("chat_setor").update({"apagada": 1}).eq("id", m['id']).execute(); st.rerun()
+                        except: pass
 
             with st.form("f_chat", clear_on_submit=True):
                 m_txt = st.text_input("Mensagem:", placeholder="Escreva e envie...")
                 if st.form_submit_button("Enviar"):
                     if m_txt:
                         agora = get_now_br()
-                        supabase.table("chat_setor").insert({
-                            "setor": setor_atual, 
-                            "usuario": user, 
-                            "data_hora": agora.strftime('%d/%m %H:%M'), 
-                            "mensagem": m_txt,
-                            "timestamp_real": agora.isoformat()
-                        }).execute(); st.rerun()
+                        supabase.table("chat_setor").insert({"setor": setor_atual, "usuario": user, "data_hora": agora.strftime('%d/%m %H:%M'), "mensagem": m_txt, "timestamp_real": agora.isoformat()}).execute(); st.rerun()
 
         # AGENDA
         with tab_age:
             with st.form("f_age", clear_on_submit=True):
                 t = st.text_input("Tarefa")
                 c1, c2, c3 = st.columns([2,1,1])
-                d = c1.date_input("Data", format="DD/MM/YYYY")
-                h = c2.selectbox("Hora", [f"{i:02d}" for i in range(24)])
-                mi = c3.selectbox("Min", ["00", "15", "30", "45"])
-                dest = st.text_input("E-mail Alerta")
+                d, h, mi = c1.date_input("Data", format="DD/MM/YYYY"), c2.selectbox("H", [f"{i:02d}" for i in range(24)]), c3.selectbox("M", ["00", "15", "30", "45"])
+                dest = st.text_input("E-mail")
                 if st.form_submit_button("Agendar"):
                     supabase.table("calendario").insert({"usuario": user, "titulo": t, "data_hora": f"{d} {h}:{mi}:00", "destinatarios": dest}).execute(); st.rerun()
             res_a = supabase.table("calendario").select("*").eq("usuario", user).execute()
             for r in res_a.data:
-                dt_format = datetime.fromisoformat(r['data_hora']).strftime('%d/%m/%Y %H:%M')
+                dt_f = datetime.fromisoformat(r['data_hora']).strftime('%d/%m/%Y %H:%M')
                 with st.container(border=True):
-                    st.write(f"📌 {r['titulo']} | 📅 {dt_format}")
+                    st.write(f"📌 {r['titulo']} | 📅 {dt_f}")
                     if st.button("🗑️ Remover", key=f"da_{r['id']}"):
                         supabase.table("calendario").delete().eq("id", r['id']).execute(); st.rerun()
 
-        # NOTAS (RESTAURADA)
+        # NOTAS (RESTAURADO)
         with tab_note:
-            st.subheader("Bloco de Notas Pessoal")
             with st.form("f_not", clear_on_submit=True):
-                tn = st.text_input("Título")
-                cn = st.text_area("Conteúdo")
+                tn, cn = st.text_input("Título"), st.text_area("Conteúdo")
                 if st.form_submit_button("Salvar Nota"):
                     supabase.table("anotacoes").insert({"usuario": user, "titulo": tn, "conteudo": cn}).execute(); st.rerun()
             res_n = supabase.table("anotacoes").select("*").eq("usuario", user).execute()
             for n in res_n.data:
                 with st.container(border=True):
-                    st.write(f"**{n['titulo']}**")
-                    st.write(n['conteudo'])
+                    st.write(f"**{n['titulo']}**"); st.write(n['conteudo'])
                     if st.button("🗑️", key=f"dn_{n['id']}"):
                         supabase.table("anotacoes").delete().eq("id", n['id']).execute(); st.rerun()
