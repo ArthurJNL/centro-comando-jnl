@@ -144,55 +144,55 @@ else:
                     resp = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": ctx}] + st.session_state["mensagens_ia"]).choices[0].message.content
                     st.markdown(resp); st.session_state["mensagens_ia"].append({"role": "assistant", "content": resp})
 
-        # CHAT (BOLINHA EM CIMA + BOTÕES TRAVADOS APÓS 20 MIN)
+        # CHAT (CORRIGIDO: MENU LATERAL ALINHADO E TEMPO DE 20 MINUTOS PRECISO)
         with tab_chat:
             res_c = supabase.table("chat_setor").select("*").eq("setor", setor_atual).order("id", desc=False).execute()
             for m in res_c.data:
                 is_me = m['usuario'] == user
                 bg = "#dcf8c6" if is_me else "#f1f0f0"
                 
-                if m['apagada'] == 1: conteudo, cor = "<i>🚫 Mensagem apagada</i>", "#888"
-                else: conteudo, cor = f"{m['mensagem']} {'*(Editada)*' if m['editada'] == 1 else ''}", "black"
+                if m['apagada'] == 1: 
+                    conteudo, cor = "<i>🚫 Mensagem apagada</i>", "#888"
+                else: 
+                    conteudo, cor = f"{m['mensagem']} {'*(Editada)*' if m['editada'] == 1 else ''}", "black"
 
                 if is_me:
-                    # Se for do usuário logado: 3 pontinhos em cima à direita, e depois o balão verde
-                    c_vazio, c_menu = st.columns([15, 1])
+                    # Layout para as próprias mensagens: Espaço vazio na esquerda, balão na direita, menu colado
+                    c_espaco, c_msg, c_menu = st.columns([6, 5, 1])
+                    with c_msg:
+                        st.markdown(f"<div style='text-align: right;'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin-bottom: 5px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
                     with c_menu:
-                        with st.popover("⋮"):
+                        if m['apagada'] == 0:
                             try:
-                                ts_msg = datetime.fromisoformat(m['timestamp_real'].replace('Z', '+00:00'))
-                                agora = datetime.now(ts_msg.tzinfo)
-                                tempo_passado = (agora - ts_msg).total_seconds() / 60
+                                ts_msg = datetime.fromisoformat(m['timestamp_real'].replace('Z', ''))
+                                tempo_passado = (get_now_br() - ts_msg).total_seconds() / 60
                             except:
                                 tempo_passado = 999 
 
-                            if m['apagada'] == 1:
-                                st.info("Esta mensagem já foi deletada.")
-                            elif tempo_passado <= 20:
-                                # Dentro dos 20 minutos: botões funcionam e editam o banco
-                                nv_txt = st.text_area("Editar mensagem:", value=m['mensagem'], key=f"te_{m['id']}")
-                                if st.button("Salvar Edição", key=f"be_{m['id']}"):
-                                    supabase.table("chat_setor").update({"mensagem": nv_txt, "editada": 1}).eq("id", m['id']).execute(); st.rerun()
-                                if st.button("🗑️ Apagar Mensagem", key=f"ba_{m['id']}"):
-                                    supabase.table("chat_setor").update({"apagada": 1}).eq("id", m['id']).execute(); st.rerun()
-                            else:
-                                # Passou de 20 minutos: os botões travam (disabled) e não fazem nada
-                                st.warning("⏳ Prazo de 20 min esgotado.")
-                                st.button("Salvar Edição", key=f"be_{m['id']}", disabled=True)
-                                st.button("🗑️ Apagar Mensagem", key=f"ba_{m['id']}", disabled=True)
-                                
-                    # Balão do usuário encostado na direita
-                    st.markdown(f"<div style='text-align: right; margin-top: -15px;'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin-bottom: 10px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
+                            # O menu só aparece se estiver dentro dos 20 minutos
+                            if tempo_passado <= 20:
+                                with st.popover("⋮"):
+                                    nv_txt = st.text_area("Editar mensagem:", value=m['mensagem'], key=f"te_{m['id']}")
+                                    if st.button("Salvar Edição", key=f"be_{m['id']}"):
+                                        supabase.table("chat_setor").update({"mensagem": nv_txt, "editada": 1}).eq("id", m['id']).execute(); st.rerun()
+                                    if st.button("🗑️ Apagar", key=f"ba_{m['id']}"):
+                                        supabase.table("chat_setor").update({"apagada": 1}).eq("id", m['id']).execute(); st.rerun()
                 else:
-                    # Se for de outro usuário (Jéssica, Pedro, etc.): sem bolinha, encostado na esquerda
-                    st.markdown(f"<div style='text-align: left;'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin-bottom: 10px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
+                    # Layout para mensagens de outras pessoas: Alinhado na esquerda e sem menu
+                    st.markdown(f"<div style='text-align: left;'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin-bottom: 5px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
 
             with st.form("f_chat", clear_on_submit=True):
                 m_txt = st.text_input("Mensagem:", placeholder="Escreva e envie...")
                 if st.form_submit_button("Enviar"):
                     if m_txt:
                         agora = get_now_br()
-                        supabase.table("chat_setor").insert({"setor": setor_atual, "usuario": user, "data_hora": agora.strftime('%d/%m %H:%M'), "mensagem": m_txt, "timestamp_real": agora.isoformat()}).execute(); st.rerun()
+                        supabase.table("chat_setor").insert({
+                            "setor": setor_atual, 
+                            "usuario": user, 
+                            "data_hora": agora.strftime('%d/%m %H:%M'), 
+                            "mensagem": m_txt, 
+                            "timestamp_real": agora.isoformat()
+                        }).execute(); st.rerun()
 
         # AGENDA
         with tab_age:
