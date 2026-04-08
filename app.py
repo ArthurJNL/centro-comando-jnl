@@ -1,225 +1,46 @@
-import streamlit as st
-import pandas as pd
-from supabase import create_client, Client
-from datetime import datetime, timedelta
-from groq import Groq
+# --- BANCO DE DADOS DE USUÁRIOS E PERMISSÕES ---
+# Senha padrão inicial: JNL2026 (Recomende que alterem no primeiro acesso)
+USUARIOS = {
+    "arthur": {"senha": "32167308", "nome": "ARTHUR", "setores": "ALL"},
+    "felipe": {"senha": "JNL2026", "nome": "FELIPE", "setores": "ALL"},
+    "pedro": {"senha": "JNL2026", "nome": "PEDRO", "setores": "ALL"},
+    "jessica": {"senha": "JNL2026", "nome": "JÉSSICA", "setores": ["ADMINISTRATIVO", "FINANCEIRO"]},
+    "emanoel": {"senha": "JNL2026", "nome": "EMANOEL", "setores": ["ESTOQUE"]},
+    "gabriel": {"senha": "JNL2026", "nome": "GABRIEL", "setores": ["ESTOQUE"]},
+    "lays": {"senha": "JNL2026", "nome": "LAYS", "setores": ["ADMINISTRATIVO", "FATURAMENTO"]},
+    "guilherme": {"senha": "JNL2026", "nome": "GUILHERME", "setores": ["COMPRAS"]},
+    "milene": {"senha": "JNL2026", "nome": "MILENE", "setores": ["SOLUÇÕES CORPORATIVAS"]},
+    "thauane": {"senha": "JNL2026", "nome": "THAUANE", "setores": ["SOLUÇÕES CORPORATIVAS"]},
+    "kamilly": {"senha": "JNL2026", "nome": "KAMILLY", "setores": ["SOLUÇÕES CORPORATIVAS"]},
+    "kaique": {"senha": "JNL2026", "nome": "KAIQUE", "setores": ["SOLUÇÕES CORPORATIVAS"]},
+    "karina": {"senha": "JNL2026", "nome": "KARINA", "setores": ["VENDAS"]},
+    "gustavo": {"senha": "JNL2026", "nome": "GUSTAVO", "setores": ["VENDAS"]},
+    "manoel": {"senha": "JNL2026", "nome": "MANOEL", "setores": ["VENDAS"]},
+    "carol": {"senha": "JNL2026", "nome": "CAROL", "setores": ["RH"]}
+}
 
-# --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="SISTEMA JNL", page_icon="🏢", layout="wide")
-SENHA_MESTRA = "JNLDIRETORIA"
-
-# --- CONEXÃO SUPABASE ---
-@st.cache_resource
-def get_supabase() -> Client:
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-
-supabase = get_supabase()
-
-def get_now_br():
-    return datetime.utcnow() - timedelta(hours=3)
-
-def obter_saudacao():
-    hora = get_now_br().hour
-    if 5 <= hora < 12: return "Bom dia"
-    elif 12 <= hora < 18: return "Boa tarde"
-    else: return "Boa noite"
-
-def busca_web(prompt):
-    try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            resultados = [r['body'] for r in ddgs.text(prompt, max_results=2)]
-            return " ".join(resultados) if resultados else ""
-    except: return ""
-
-# --- ESTADO DO SISTEMA ---
-if "autenticado" not in st.session_state: st.session_state["autenticado"] = False
-if "setor" not in st.session_state: st.session_state["setor"] = None
-if "mensagens_ia" not in st.session_state: st.session_state["mensagens_ia"] = []
-if "admin_liberado" not in st.session_state: st.session_state["admin_liberado"] = False
-
-# --- 1. TELA DE LOGIN ---
-if not st.session_state["autenticado"]:
-    st.title("🔒 CENTRO DE COMANDO JNL")
-    u = st.text_input("Usuário:").lower()
-    p = st.text_input("Senha:", type="password")
-    if st.button("ACESSAR"):
-        res = supabase.table("usuarios").select("*").eq("login", u).execute()
-        if res.data and res.data[0]["senha"] == p:
-            st.session_state.update({
-                "autenticado": True, "user_slug": u, "user_nome": res.data[0]["nome"], "user_setores": res.data[0]["setores"]
-            })
-            st.rerun()
-        else: st.error("Acesso Negado.")
-
-# --- 2. SELEÇÃO DE SETORES ---
+# --- LÓGICA DE SELEÇÃO DE SETOR (FILTRADA) ---
 elif st.session_state["setor"] is None:
-    st.title(f"🏢 {obter_saudacao()}! Bem-vindo, {st.session_state['user_nome']}.")
-    setores_base = ["ADMINISTRATIVO", "FINANCEIRO", "FATURAMENTO", "VENDAS", "COMPRAS", "ESTOQUE", "SOLUÇÕES CORPORATIVAS", "PROJETOS/IMPORTAÇÃO", "RH", "GERAL"]
-    permissoes = st.session_state["user_setores"]
-    setores_visiveis = setores_base if permissoes == "ALL" else permissoes.split(",")
-    if permissoes == "ALL": setores_visiveis.append("🔐 CONTROLE DE SENHAS")
+    verificar_alertas()
+    user_key = st.session_state["user_slug"]
+    nome_exibicao = USUARIOS[user_key]["nome"]
     
+    st.title(f"🏢 {obter_saudacao()}! Bem-vindo, {nome_exibicao}.")
+    st.subheader("Selecione o setor para acessar o painel:")
+
+    # Lista mestra de setores
+    setores_base = ["ADMINISTRATIVO", "FINANCEIRO", "FATURAMENTO", "VENDAS", "COMPRAS", "ESTOQUE", "SOLUÇÕES CORPORATIVAS", "PROJETOS/IMPORTAÇÃO", "RH", "GERAL"]
+    
+    # Filtro de Permissão
+    permissoes = USUARIOS[user_key]["setores"]
+    if permissoes == "ALL":
+        setores_visiveis = setores_base
+    else:
+        setores_visiveis = [s for s in setores_base if s in permissoes]
+
     cols = st.columns(3)
     for i, s in enumerate(setores_visiveis):
         with cols[i % 3]:
-            tipo = "primary" if "SENHAS" in s else "secondary"
-            if st.button(s, use_container_width=True, type=tipo):
-                st.session_state["setor"] = s; st.rerun()
-
-# --- 3. DASHBOARD PRINCIPAL ---
-else:
-    setor_atual = st.session_state["setor"]
-    user = st.session_state["user_slug"]
-
-    # --- CONTROLE DE SENHAS ---
-    if setor_atual == "🔐 CONTROLE DE SENHAS":
-        if not st.session_state["admin_liberado"]:
-            st.title("🛡️ Cofre da Diretoria")
-            sm = st.text_input("Senha Mestra:", type="password")
-            if st.button("DESBLOQUEAR"):
-                if sm == SENHA_MESTRA: st.session_state["admin_liberado"] = True; st.rerun()
-                else: st.error("Incorreta.")
-            if st.button("⬅️ VOLTAR"): st.session_state["setor"] = None; st.rerun()
-        else:
-            st.title("🔐 Gestão de Funcionários")
-            if st.button("⬅️ TRANCAR E VOLTAR"): st.session_state["admin_liberado"] = False; st.session_state["setor"] = None; st.rerun()
-            res_u = supabase.table("usuarios").select("login, nome").execute()
-            df_u = pd.DataFrame(res_u.data)
-            with st.form("f_senha"):
-                u_sel = st.selectbox("Usuário:", df_u['login'].tolist())
-                n_s = st.text_input("Nova Senha:", type="password")
-                if st.form_submit_button("Atualizar"):
-                    supabase.table("usuarios").update({"senha": n_s}).eq("login", u_sel).execute()
-                    st.success("Senha atualizada!")
-
-    # --- SETORES OPERACIONAIS ---
-    else:
-        with st.sidebar:
-            st.header(f"📍 {setor_atual}")
-            if st.button("⬅️ TROCAR SETOR"): st.session_state["setor"] = None; st.rerun()
-            st.write("---")
-            
-            # --- ARMAZÉM DE PLANILHAS ---
-            st.subheader("📂 ARMAZÉM DE PLANILHAS")
-            up = st.file_uploader("Subir Doc", accept_multiple_files=True)
-            if st.button("📥 SALVAR NO SERVIDOR"):
-                if up:
-                    for f in up:
-                        supabase.table("arquivos_setoriais").insert({"setor": setor_atual, "nome": f.name, "caminho": f.name}).execute()
-                    st.success("Salvo!"); st.rerun()
-            st.write("**Arquivos do Setor:**")
-            res_arq = supabase.table("arquivos_setoriais").select("*").eq("setor", setor_atual).execute()
-            for arq in res_arq.data: st.caption(f"📄 {arq['nome']}")
-            
-            st.write("---")
-            st.subheader("⚙️ PERFIL IA")
-            nova_o = st.text_area("Nova Ordem:", placeholder="Ex: Me chame de Arthur.")
-            if st.button("Gravar Ordem"):
-                if nova_o:
-                    supabase.table("ordens_ia").insert({"usuario": user, "ordem": nova_o}).execute()
-                    st.rerun()
-            ordens = supabase.table("ordens_ia").select("*").eq("usuario", user).order("id", desc=False).execute()
-            for o in ordens.data:
-                with st.container(border=True):
-                    st.caption(o['ordem'])
-                    if st.button("🗑️", key=f"del_o_{o['id']}"):
-                        supabase.table("ordens_ia").delete().eq("id", o['id']).execute(); st.rerun()
-
-        tab_ia, tab_chat, tab_age, tab_note = st.tabs(["💬 IA JNL", "👥 CHAT", "📅 AGENDA", "📝 NOTAS"])
-
-        # IA JNL
-        with tab_ia:
-            st.subheader("Assistente Inteligente JNL")
-            for msg in st.session_state["mensagens_ia"]:
-                with st.chat_message(msg["role"]): st.markdown(msg["content"])
-            if prompt := st.chat_input("Comande a IA..."):
-                st.session_state["mensagens_ia"].append({"role": "user", "content": prompt})
-                with st.chat_message("user"): st.markdown(prompt)
-                with st.chat_message("assistant"):
-                    res_o = supabase.table("ordens_ia").select("ordem").eq("usuario", user).order("id", desc=False).execute()
-                    regras = "\n".join([x['ordem'] for x in res_o.data])
-                    ctx = f"Você é a IA da JNL. REGRAS: {regras}. WEB: {busca_web(prompt)}"
-                    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-                    resp = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": ctx}] + st.session_state["mensagens_ia"]).choices[0].message.content
-                    st.markdown(resp); st.session_state["mensagens_ia"].append({"role": "assistant", "content": resp})
-
-        # CHAT (CORRIGIDO: MENU LATERAL ALINHADO E TEMPO DE 20 MINUTOS PRECISO)
-        with tab_chat:
-            res_c = supabase.table("chat_setor").select("*").eq("setor", setor_atual).order("id", desc=False).execute()
-            for m in res_c.data:
-                is_me = m['usuario'] == user
-                bg = "#dcf8c6" if is_me else "#f1f0f0"
-                
-                if m['apagada'] == 1: 
-                    conteudo, cor = "<i>🚫 Mensagem apagada</i>", "#888"
-                else: 
-                    conteudo, cor = f"{m['mensagem']} {'*(Editada)*' if m['editada'] == 1 else ''}", "black"
-
-                if is_me:
-                    # Layout para as próprias mensagens: Espaço vazio na esquerda, balão na direita, menu colado
-                    c_espaco, c_msg, c_menu = st.columns([6, 5, 1])
-                    with c_msg:
-                        st.markdown(f"<div style='text-align: right;'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin-bottom: 5px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
-                    with c_menu:
-                        if m['apagada'] == 0:
-                            try:
-                                ts_msg = datetime.fromisoformat(m['timestamp_real'].replace('Z', ''))
-                                tempo_passado = (get_now_br() - ts_msg).total_seconds() / 60
-                            except:
-                                tempo_passado = 999 
-
-                            # O menu só aparece se estiver dentro dos 20 minutos
-                            if tempo_passado <= 20:
-                                with st.popover("⋮"):
-                                    nv_txt = st.text_area("Editar mensagem:", value=m['mensagem'], key=f"te_{m['id']}")
-                                    if st.button("Salvar Edição", key=f"be_{m['id']}"):
-                                        supabase.table("chat_setor").update({"mensagem": nv_txt, "editada": 1}).eq("id", m['id']).execute(); st.rerun()
-                                    if st.button("🗑️ Apagar", key=f"ba_{m['id']}"):
-                                        supabase.table("chat_setor").update({"apagada": 1}).eq("id", m['id']).execute(); st.rerun()
-                else:
-                    # Layout para mensagens de outras pessoas: Alinhado na esquerda e sem menu
-                    st.markdown(f"<div style='text-align: left;'><div style='display: inline-block; background: {bg}; padding: 10px; border-radius: 10px; color: {cor}; margin-bottom: 5px; min-width: 150px; text-align: left;'><b>{m['usuario'].upper()}</b><br>{conteudo}<br><small>{m['data_hora']}</small></div></div>", unsafe_allow_html=True)
-
-            with st.form("f_chat", clear_on_submit=True):
-                m_txt = st.text_input("Mensagem:", placeholder="Escreva e envie...")
-                if st.form_submit_button("Enviar"):
-                    if m_txt:
-                        agora = get_now_br()
-                        supabase.table("chat_setor").insert({
-                            "setor": setor_atual, 
-                            "usuario": user, 
-                            "data_hora": agora.strftime('%d/%m %H:%M'), 
-                            "mensagem": m_txt, 
-                            "timestamp_real": agora.isoformat()
-                        }).execute(); st.rerun()
-
-        # AGENDA
-        with tab_age:
-            with st.form("f_age", clear_on_submit=True):
-                t = st.text_input("Tarefa")
-                c1, c2, c3 = st.columns([2,1,1])
-                d, h, mi = c1.date_input("Data", format="DD/MM/YYYY"), c2.selectbox("H", [f"{i:02d}" for i in range(24)]), c3.selectbox("M", ["00", "15", "30", "45"])
-                dest = st.text_input("E-mail")
-                if st.form_submit_button("Agendar"):
-                    supabase.table("calendario").insert({"usuario": user, "titulo": t, "data_hora": f"{d} {h}:{mi}:00", "destinatarios": dest}).execute(); st.rerun()
-            res_a = supabase.table("calendario").select("*").eq("usuario", user).execute()
-            for r in res_a.data:
-                dt_f = datetime.fromisoformat(r['data_hora']).strftime('%d/%m/%Y %H:%M')
-                with st.container(border=True):
-                    st.write(f"📌 {r['titulo']} | 📅 {dt_f}")
-                    if st.button("🗑️ Remover", key=f"da_{r['id']}"):
-                        supabase.table("calendario").delete().eq("id", r['id']).execute(); st.rerun()
-
-        # NOTAS
-        with tab_note:
-            with st.form("f_not", clear_on_submit=True):
-                tn, cn = st.text_input("Título"), st.text_area("Conteúdo")
-                if st.form_submit_button("Salvar Nota"):
-                    supabase.table("anotacoes").insert({"usuario": user, "titulo": tn, "conteudo": cn}).execute(); st.rerun()
-            res_n = supabase.table("anotacoes").select("*").eq("usuario", user).execute()
-            for n in res_n.data:
-                with st.container(border=True):
-                    st.write(f"**{n['titulo']}**"); st.write(n['conteudo'])
-                    if st.button("🗑️", key=f"dn_{n['id']}"):
-                        supabase.table("anotacoes").delete().eq("id", n['id']).execute(); st.rerun()
+            if st.button(s, use_container_width=True, key=f"btn_{s}"):
+                st.session_state["setor"] = s
+                st.rerun()
